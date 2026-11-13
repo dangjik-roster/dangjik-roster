@@ -866,8 +866,54 @@ function pageMe(){const names=Object.keys(S.people).sort((a,b)=>a.localeCompare(
  const days=[];for(let i=0;i<120;i++)days.push(addD(TODAY,i));const C=chainsFor(days);const list=[];
  days.forEach(d=>{const o=C[d];if(!o)return;['wd','d','n'].forEach(t=>{if(!o[t])return;const ch=o[t];if(ch[ch.length-1]===me)list.push({d,t,sw:ch.length>1?ch[0]:null})})});
  h+=`<div class="card"><h3>앞으로 120일 · ${list.length}번</h3>${list.length?list.map(x=>{const dd=Math.round((pd(x.d)-pd(TODAY))/864e5);return `<div class="meRow"><span class="dd${dd===0?' t':''}">${dd===0?'오늘':'D-'+dd}</span><b style="font-size:16px">${fmt(x.d)}</b><span class="tag ${x.t==='wd'?'ok':x.t==='d'?'new':'sw'}">${TN[x.t]}</span>${x.sw?`<span class="hint" style="margin:0">${esc(x.sw)} 대신 (교대)</span>`:''}${has(S.holidays,x.d)&&S.holidays[x.d]?`<span class="hint" style="margin:0;color:var(--red)">${esc(S.holidays[x.d])}</span>`:''}</div>`}).join(''):'<div class="empty-st">예정된 근무가 없어요</div>'}</div>`;
+ if(ONLINE)h+=gcalCard(me,list);
  if(ONLINE)h+=`<div class="card"><h3>이 기기</h3><p class="desc">부대번호를 기억하고 있어요. 공용 휴대폰이면 지워주세요.</p><button class="btn danger" onclick="forgetDevice()">이 기기에서 부대번호 지우기</button></div>`;
  return h}
+
+/* ================= 구글 캘린더 연동 (온라인 모드) =================
+   - 이 페이지가 넣은 일정에만 표시(dutyRoster=1)를 달아, 다시 적용하면 그 일정만 바꾼다(다른 일정은 건드리지 않음)
+   - 오늘 이후 일정만 다룸(지난 당직은 기록으로 남김) */
+const GCAL_CID='85152847319-pghjro02hjkg79rok5b7r97hsvmnivct.apps.googleusercontent.com';
+const GCAL_SCOPE='https://www.googleapis.com/auth/calendar.events';
+const GAPI='https://www.googleapis.com/calendar/v3/calendars/primary/events';
+let gTok=null,gTokExp=0,gBusy=false;
+function gcalWant(me,list){return list.map(x=>({key:x.d+'|'+x.t,date:x.d,summary:'당직부관 '+(x.t==='wd'?'평일':x.t==='d'?'주말 주간':'주말 야간'),desc:(x.sw?x.sw+' 대신 (교대)\n':'')+'당직 근무표에서 자동 등록'}))}
+function gcalSig(me,list){return me+'#'+gcalWant(me,list).map(w=>w.key+'/'+w.summary+'/'+w.desc).join(',')}
+function gcalCard(me,list){
+ const last=lsGet('dutyGcal_sig'),lastAt=lsGet('dutyGcal_at');const sig=gcalSig(me,list);
+ const st=!last?'<span class="tag">아직 안 넣음</span>':last===sig?`<span class="tag ok">캘린더와 같음</span>`:`<span class="tag sw">근무가 바뀌었어요 → 다시 적용</span>`;
+ setTimeout(gisLoad,0);
+ return `<div class="card"><h3>구글 캘린더</h3><div class="fr" style="flex-wrap:wrap;gap:8px">${st}${lastAt?`<span class="hint" style="margin:0">마지막 적용 ${esc(lastAt)}</span>`:''}</div>
+ <p class="desc">버튼을 누르면 앞으로 120일 내 당직이 내 구글 캘린더에 종일 일정으로 들어가요(전날 오후 6시 알림). 근무가 바뀐 뒤 다시 누르면 <b>이 페이지가 넣은 당직 일정만</b> 지우고 바뀐 근무로 다시 넣어요. 지난 당직과 다른 일정은 그대로예요.</p>
+ <div class="fr" style="gap:8px;flex-wrap:wrap"><button class="btn pri" id="gc_btn" onclick="gcalApply()">${last?'구글 캘린더에 다시 적용':'구글 캘린더에 넣기'}</button>${last?'<button class="btn" onclick="gcalClear()">캘린더에서 당직 일정 지우기</button>':''}</div>
+ <p class="hint">처음엔 구글 로그인 창이 떠요. "확인되지 않은 앱" 화면이 나오면 <b>고급 → 당직 근무표(으)로 이동</b>을 누르세요.</p></div>`}
+function gisLoad(){return new Promise((res,rej)=>{if(window.google&&google.accounts&&google.accounts.oauth2)return res();let s=document.getElementById('gis_js');if(!s){s=document.createElement('script');s.id='gis_js';s.src='https://accounts.google.com/gsi/client';s.async=true;document.head.appendChild(s)}s.addEventListener('load',()=>res());s.addEventListener('error',()=>rej(new Error('구글 로그인 스크립트를 불러오지 못했어요')))})}
+function gToken(){
+ if(gTok&&Date.now()<gTokExp-60e3)return Promise.resolve(gTok);
+ return new Promise((res,rej)=>{
+  if(!(window.google&&google.accounts&&google.accounts.oauth2)){rej(new Error('구글 로그인 준비 중이에요. 잠시 후 다시 눌러주세요'));return}
+  const c=google.accounts.oauth2.initTokenClient({client_id:GCAL_CID,scope:GCAL_SCOPE,callback:r=>{if(r.error){rej(new Error(r.error_description||r.error));return}
+   if(!google.accounts.oauth2.hasGrantedAllScopes(r,GCAL_SCOPE)){rej(new Error('캘린더 권한을 체크해야 넣을 수 있어요'));return}
+   gTok=r.access_token;gTokExp=Date.now()+(+r.expires_in||3600)*1e3;res(gTok)},error_callback:e=>rej(new Error(e&&e.type==='popup_closed'?'로그인 창이 닫혔어요':'로그인 창을 열지 못했어요(팝업 차단 확인)'))});
+  c.requestAccessToken({prompt:''})})}
+async function gReq(method,url,body){const r=await fetch(url,{method,headers:{Authorization:'Bearer '+gTok,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+ if(r.status===204)return null;const j=await r.json().catch(()=>({}));if(!r.ok){if(r.status===401)gTok=null;throw new Error((j.error&&j.error.message)||('오류 '+r.status))}return j}
+async function gExisting(){const out=[];let pt='';const tmin=new Date(pd(TODAY).getTime()-864e5).toISOString();
+ do{const j=await gReq('GET',`${GAPI}?privateExtendedProperty=dutyRoster%3D1&singleEvents=true&maxResults=250&timeMin=${encodeURIComponent(tmin)}${pt?'&pageToken='+pt:''}`);(j.items||[]).forEach(e=>{const d=e.start&&e.start.date,pv=(e.extendedProperties||{}).private||{};if(pv.dutyRoster==='1'&&d&&d>=TODAY)out.push(e)});pt=j.nextPageToken||''}while(pt);return out}
+async function gRun(fn){if(gBusy)return;gBusy=true;const b=$('#gc_btn');if(b){b.disabled=true;b.textContent='처리 중…'}
+ try{await gisLoad();await gToken();await fn()}catch(e){await note('구글 캘린더 작업을 못 했어요.\n'+e.message)}finally{gBusy=false;render()}}
+function gcalApply(){const me=ME();if(!me)return;
+ const days=[];for(let i=0;i<120;i++)days.push(addD(TODAY,i));const C=chainsFor(days);const list=[];
+ days.forEach(d=>{const o=C[d];if(!o)return;['wd','d','n'].forEach(t=>{if(!o[t])return;const ch=o[t];if(ch[ch.length-1]===me)list.push({d,t,sw:ch.length>1?ch[0]:null})})});
+ const want=gcalWant(me,list);
+ return gRun(async()=>{const have=await gExisting();const W=new Map(want.map(w=>[w.key+'/'+w.summary+'/'+w.desc,w]));const keep=new Set();let del=0,add=0;
+  for(const e of have){const k=((e.extendedProperties||{}).private||{}).dkey+'/'+e.summary+'/'+(e.description||'');if(W.has(k)&&!keep.has(k))keep.add(k);else{await gReq('DELETE',`${GAPI}/${encodeURIComponent(e.id)}`);del++}}
+  for(const [k,w] of W){if(keep.has(k))continue;
+   await gReq('POST',GAPI,{summary:w.summary,description:w.desc,start:{date:w.date},end:{date:addD(w.date,1)},transparency:'opaque',reminders:{useDefault:false,overrides:[{method:'popup',minutes:360}]},extendedProperties:{private:{dutyRoster:'1',dkey:w.key}}});add++}
+  lsSet('dutyGcal_sig',gcalSig(me,list));lsSet('dutyGcal_at',new Date().toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+  toast(add||del?`캘린더 반영: 새로 ${add}개 · 지움 ${del}개`:'캘린더가 이미 최신이에요')})}
+async function gcalClear(){if(!(await ask('구글 캘린더에서 이 페이지가 넣은 앞으로의 당직 일정을 모두 지울까요?')))return;
+ return gRun(async()=>{const have=await gExisting();for(const e of have)await gReq('DELETE',`${GAPI}/${encodeURIComponent(e.id)}`);lsSet('dutyGcal_sig',null);lsSet('dutyGcal_at',null);toast(`캘린더에서 ${have.length}개 지웠어요`)})}
 
 /* ================= 온라인(GitHub) 모드: 부대번호 잠금 · 관리자 · 게시 ================= */
 const ITER=250000,te=new TextEncoder(),tdc=new TextDecoder();
