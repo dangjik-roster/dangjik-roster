@@ -899,15 +899,21 @@ function gcalCard(me,list){
 const GCAL_REDIR=location.origin+location.pathname.replace(/[^/]*$/,'');
 (function gcalCatch(){const h=location.hash||'';if(!/access_token=|error=/.test(h))return;
  const q=new URLSearchParams(h.slice(1));history.replaceState(null,'',location.pathname+location.search);
- const st=lsGet('dutyGcal_state');lsSet('dutyGcal_state',null);
- if(!st||q.get('state')!==st){lsSet('dutyGcal_pending',null);return}
+ const st=lsGet('dutyGcal_state');lsSet('dutyGcal_state',null);const qs=q.get('state')||'';
+ const am=qs.match(/^app-(apply|clear)-(.*)$/);// 안드로이드 앱에서 넘어온 로그인
+ if(am){lsSet('dutyGcal_pending',am[1]);const nm=decodeURIComponent(am[2]);if(nm&&!lsGet('dutyOnline_me'))lsSet('dutyOnline_me',nm)}
+ else if(!st||qs!==st){lsSet('dutyGcal_pending',null);return}
  if(q.get('error')){lsSet('dutyGcal_pending',null);setTimeout(()=>note('구글 로그인을 취소했거나 권한을 허용하지 않았어요.'),600);return}
  if(!(q.get('scope')||'').includes('calendar.events')){lsSet('dutyGcal_pending',null);setTimeout(()=>note('캘린더 권한에 체크해야 넣을 수 있어요. 다시 눌러 체크해주세요.'),600);return}
  gTok=q.get('access_token');gTokExp=Date.now()+(+q.get('expires_in')||3600)*1e3;
  try{sessionStorage.setItem('dutyGcal_tok',JSON.stringify([gTok,gTokExp]))}catch(e){}})();
 (function(){if(gTok)return;try{const t=JSON.parse(sessionStorage.getItem('dutyGcal_tok')||'null');if(t&&Date.now()<t[1]-60e3){gTok=t[0];gTokExp=t[1]}}catch(e){}})();
 function gTokOk(){return gTok&&Date.now()<gTokExp-60e3}
-function gLogin(action){const st=Math.random().toString(36).slice(2)+Date.now().toString(36);lsSet('dutyGcal_state',st);lsSet('dutyGcal_pending',action);
+const IN_APP=/DutyRosterApp/.test(navigator.userAgent);
+function gLogin(action){
+ // 안드로이드 앱 안에서는 구글이 로그인을 막아서, 크롬(외부 브라우저)에서 로그인·적용까지 처리
+ if(IN_APP){note('구글 로그인은 앱 안에서 안 돼서 크롬에서 열어요. 크롬에서 부대번호를 넣으면 캘린더 적용이 이어서 진행돼요.').then(()=>{location.href='https://accounts.google.com/o/oauth2/v2/auth?'+new URLSearchParams({client_id:GCAL_CID,redirect_uri:GCAL_REDIR,response_type:'token',scope:GCAL_SCOPE,include_granted_scopes:'true',state:'app-'+action+'-'+encodeURIComponent(ME()),prompt:'select_account'})});return}
+ const st=Math.random().toString(36).slice(2)+Date.now().toString(36);lsSet('dutyGcal_state',st);lsSet('dutyGcal_pending',action);
  location.href='https://accounts.google.com/o/oauth2/v2/auth?'+new URLSearchParams({client_id:GCAL_CID,redirect_uri:GCAL_REDIR,response_type:'token',scope:GCAL_SCOPE,include_granted_scopes:'true',state:st,prompt:'select_account'})}
 // 로그인 후 돌아오면(부대번호 입력·이름 선택이 끝난 뒤) 누르던 작업을 이어서 함
 function gcalResume(){const a=lsGet('dutyGcal_pending');if(!a||gBusy||!G.unlocked||!ME()||!gTokOk())return;lsSet('dutyGcal_pending',null);pg='me';
