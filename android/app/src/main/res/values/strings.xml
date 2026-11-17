@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">당직 근무표</string>
+    <string name="title_activity_main">당직 근무표</string>
+    <string name="package_name">com.dangjikroster.app</string>
+    <string name="custom_url_scheme">com.dangjikroster.app</string>
+</resources>

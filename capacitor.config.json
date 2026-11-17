@@ -1,0 +1,7 @@
+{
+  "appId": "com.dangjikroster.app",
+  "appName": "당직 근무표",
+  "webDir": "www",
+  "android": { "backgroundColor": "#F4F5F2", "appendUserAgent": "DutyRosterApp" },
+  "server": { "url": "https://dangjik-roster.github.io/dangjik-roster/", "androidScheme": "https" }
+}
