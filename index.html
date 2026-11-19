@@ -447,6 +447,12 @@ function curD(x,G){return x.k?((G||genFull()).dateOf[x.k]||null):x.d}
 function sd(x,G){const d=curD(x,G);return d?fmt(d):'<span style="color:var(--red)">근무 없음</span>'}
 function logText(e,G){return e.type==='swap'?`${sd(e.a,G)} ${TN[e.a.t]} <b>${esc(e.a.from)}</b> ⇄ ${sd(e.b,G)} ${TN[e.b.t]} <b>${esc(e.b.from)}</b>`:`${sd(e.a,G)} ${TN[e.a.t]} <b>${esc(e.a.from)}</b> → <b>${esc(e.a.to)}</b> 대근`}
 function logPlain(e){const G=genFull(),f=x=>{const d=curD(x,G);return d?fmt(d):'(근무 없음)'};return e.type==='swap'?`${f(e.a)} ${TN[e.a.t]} ${e.a.from} ⇄ ${f(e.b)} ${TN[e.b.t]} ${e.b.from}`:`${f(e.a)} ${TN[e.a.t]} ${e.a.from} → ${e.a.to} 대근`}
+/* 비고 아래 공제 안내 — [인원·공제·파견]에 넣은 기간 중 이 달과 겹치는 것만 자동으로 적음 */
+function josaRo(w){const c=(w||'').trim().slice(-1).charCodeAt(0)-0xAC00;if(c<0||c>11171)return'로';const j=c%28;return j===0||j===8?'로':'으로'}
+function dedLines(mon){const a=mon+'-01',z=addD(shiftMonth(mon,1)+'-01',-1),md=d=>{const[,m,dd]=d.split('-');return `${+m}월 ${+dd}일`};const g=new Map();
+ Object.entries(S.people).forEach(([n,p])=>(p.periods||[]).forEach(q=>{if(!q.from||q.from>z||(q.to&&q.to<a))return;const k=q.from+'|'+(q.to||'')+'|'+(q.reason||'').trim();if(!g.has(k))g.set(k,[]);g.get(k).push(n)}));
+ return [...g.entries()].sort((x,y)=>x[0]<y[0]?-1:1).map(([k,ns])=>{const[f,t,r]=k.split('|');return `${md(f)} ~ ${t?md(t)+'까지':'복귀 시까지'} ${ns.sort((x,y)=>x.localeCompare(y,'ko')).map(rkName).join(', ')} ${r?r+josaRo(r)+' ':''}근무 공제`})}
+function notesFor(mon){return [S.notes||'',...dedLines(mon)].filter(x=>x.trim()).join('\n')}
 /* 근무교대 공지 문구 (단톡방 붙여넣기용) — 예: 12.1 하사 홍길동 <-> 12.8 하사 김철수 근무교대입니다. */
 function rkName(n){const p=S.people[n],r=p&&p.rank;return r?r+' '+n:n}
 function msgD(x,G){const d=curD(x,G);if(!d)return'?';const[,m,dd]=d.split('-');return +m+'.'+(+dd)+(x.t==='d'?'(주간)':x.t==='n'?'(야간)':'')}
@@ -466,16 +472,18 @@ async function cancelLog(id,skipConfirm){const e=S.log.find(x=>x.id===id);if(!e)
   S.log=S.log.filter(x=>x.id!==id);save();return}
  if(!skipConfirm&&!await ask(`이 ${e.type==='swap'?'교대':'대근'}를 취소할까요?\n\n${logPlain(e)}\n\n${e.type==='swap'?'두 근무 모두':'이 근무가'} 원래대로 돌아갑니다.`))return;
  sides(e).forEach(popRef);S.log=S.log.filter(x=>x.id!==id);sel=[];save();toast((e.type==='swap'?'교대':'대근')+' 취소 — 원래대로 복구')}
-function doSwap(){const[a,b]=sel;const ra=slotRef(a.d,a.t),rb=slotRef(b.d,b.t);
+function doSwap(){return applySwap(sel[0],sel[1])}
+function applySwap(a,b,after){const ra=slotRef(a.d,a.t),rb=slotRef(b.d,b.t);
  if((a.d>=S.anchor.date&&!ra.k)||(b.d>=S.anchor.date&&!rb.k))return note('근무자가 없는 칸은 교대할 수 없어요.');
  const pa=finalOf(a.d,a.t),pb=finalOf(b.d,b.t);if(pa===pb)return note('두 근무의 근무자가 같은 사람입니다.');
  pushTo(ra,pb);pushTo(rb,pa);
  S.log.push({id:Date.now(),ts:Date.now(),type:'swap',a:{...ra,from:pa,to:pb},b:{...rb,from:pb,to:pa}});
- sel=[];save();toast(`교대 완료: ${pa} ⇄ ${pb}`);shareLog(S.log[S.log.length-1].id)}
-function doReplace(){const s=sel[0],n=$('#bar_p').value;if(!n)return;const r=slotRef(s.d,s.t);
+ sel=[];save();toast(`교대 완료: ${pa} ⇄ ${pb}`);if(after)after();rqAfterChange();shareLog(S.log[S.log.length-1].id);return true}
+function doReplace(){const n=$('#bar_p').value;if(!n)return;return applySub(sel[0],n)}
+function applySub(s,n){const r=slotRef(s.d,s.t);
  if(s.d>=S.anchor.date&&!r.k)return note('근무자가 없는 칸이에요.');
  const from=finalOf(s.d,s.t);pushTo(r,n);
- S.log.push({id:Date.now(),ts:Date.now(),type:'sub',a:{...r,from,to:n},b:null});sel=[];save();toast(`${fmt(s.d)} ${TN[s.t]} → ${n} 대근 지정`);shareLog(S.log[S.log.length-1].id)}
+ S.log.push({id:Date.now(),ts:Date.now(),type:'sub',a:{...r,from,to:n},b:null});sel=[];save();toast(`${fmt(s.d)} ${TN[s.t]} → ${n} 대근 지정`);rqAfterChange();shareLog(S.log[S.log.length-1].id);return true}
 async function undoSel(){const s=sel[0];const e=findLog(s.d,s.t);
  if(e)return await cancelLog(e.id);
  if(!await ask(`${fmt(s.d)} ${TN[s.t]}의 마지막 변경(종이표에서 옮겨온 기록)을 지울까요?\n상대 근무가 있으면 그쪽도 따로 지워주세요.`))return;
@@ -496,15 +504,16 @@ const IC={
  set:'<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1A2 2 0 1 1 7 5.2l.1.1A1.7 1.7 0 0 0 10 4.1V4a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1"/>'
 };
 const ico=k=>`<svg class="i" viewBox="0 0 24 24">${IC[k]}</svg>`;
-const NAV=[['근무',[['cal','근무표'],['me','내 근무'],['log','교대 이력']]],['관리',[['rot','순번 관리'],['ppl','인원·공제·파견'],['new','전입자 추가'],['hol','휴일'],['nd','훈련(근무 없음)']]],['기타',[['close','월 마감(확정)'],['stat','통계·경고'],['set','설정·백업']]]];
-const TITLE={me:['내 근무','이름을 고르면 앞으로의 내 당직이 보여요'],cal:['근무표','이름을 누르면 체크돼요. 두 개 체크 → 교대, 한 개 체크 → 대근 지정·교대 취소'],log:['교대 이력','교대·대근을 기록 순서대로 보여줘요. [취소]를 누르면 두 근무 모두 원래대로 돌아가요'],rot:['순번 관리','평일 · 주말 주간 · 주말 야간 세 가지 순번을 따로 관리해요'],ppl:['인원·공제·파견','기간을 넣으면 그동안 순번에서 자동으로 빠지고, 끝나면 원래 자리로 복귀해요'],new:['전입자 추가','전입일만 넣으면 평일·주간·야간 첫 투입일을 자동으로 계산해요'],hol:['휴일','휴일을 넣으면 평일·주말 순번이 자동으로 다시 맞춰져요'],nd:['훈련(근무 없음)','훈련 기간엔 당직부관 근무를 비우고 순번을 그대로 밀어요. 종료일부터 다시 근무가 들어가요'],close:['월 마감(확정)','배포한 달을 고정해서 나중에 인원·순번이 바뀌어도 지난 근무가 그대로 남게 해요'],stat:['통계·경고','1인당 근무 횟수와 연속 근무 등 확인이 필요한 항목'],set:['설정·백업','작성자, 비고, 내 이름, 백업']};
+const NAV=[['근무',[['cal','근무표'],['me','내 근무'],['log','교대 이력'],['req','교대 건의함']]],['관리',[['rot','순번 관리'],['ppl','인원·공제·파견'],['new','전입자 추가'],['hol','휴일'],['nd','훈련(근무 없음)']]],['기타',[['close','월 마감(확정)'],['stat','통계·경고'],['set','설정·백업']]]];
+const TITLE={req:['교대 건의함','인원이 올린 교대·대근 건의예요. 관리자가 [승인]하면 근무표에 바로 들어가요'],me:['내 근무','이름을 고르면 앞으로의 내 당직이 보여요'],cal:['근무표','이름을 누르면 체크돼요. 두 개 체크 → 교대, 한 개 체크 → 대근 지정·교대 취소'],log:['교대 이력','교대·대근을 기록 순서대로 보여줘요. [취소]를 누르면 두 근무 모두 원래대로 돌아가요'],rot:['순번 관리','평일 · 주말 주간 · 주말 야간 세 가지 순번을 따로 관리해요'],ppl:['인원·공제·파견','기간을 넣으면 그동안 순번에서 자동으로 빠지고, 끝나면 원래 자리로 복귀해요'],new:['전입자 추가','전입일만 넣으면 평일·주간·야간 첫 투입일을 자동으로 계산해요'],hol:['휴일','휴일을 넣으면 평일·주말 순번이 자동으로 다시 맞춰져요'],nd:['훈련(근무 없음)','훈련 기간엔 당직부관 근무를 비우고 순번을 그대로 밀어요. 종료일부터 다시 근무가 들어가요'],close:['월 마감(확정)','배포한 달을 고정해서 나중에 인원·순번이 바뀌어도 지난 근무가 그대로 남게 해요'],stat:['통계·경고','1인당 근무 횟수와 연속 근무 등 확인이 필요한 항목'],set:['설정·백업','작성자, 비고, 내 이름, 백업']};
 
-const VIEW_PAGES=['cal','me','log','stat'];
+const VIEW_PAGES=['cal','me','log','req','stat'];
 let calView='grid';
 function render(){
  document.documentElement.dataset.theme=theme();
  if(!G.unlocked)return;
  if(ONLINE&&typeof gcalResume==='function')setTimeout(gcalResume,0);
+ if(RQ_ON&&!RQ.tried){RQ.tried=true;setTimeout(()=>rqLoad(),0)}
  if(!canEdit()&&!VIEW_PAGES.includes(pg))pg='cal';
  if(!canEdit()&&mode!=='view'&&mode!=='ask'){mode='view';sel=[]}
  if(canEdit()&&mode==='ask'){mode='view';sel=[]}
@@ -513,7 +522,7 @@ function render(){
  $('#themeBtn').innerHTML=theme()==='dark'?'☀ 주간 화면':'☾ 야간 화면';
  const[y,m]=month.split('-');$('#mlabel').textContent=`${y}년 ${+m}월`;
  const wc=warnCount();
- $('#nav').innerHTML=NAV.map(([g,items])=>[g,items.filter(([k])=>canEdit()||VIEW_PAGES.includes(k))]).filter(([g,items])=>items.length).map(([g,items])=>`<div class="grp">${g}</div>`+items.map(([k,l])=>`<button class="${pg===k?'on':''}" onclick="goPage('${k}')">${ico(k)}${l}${k==='stat'&&wc?`<span class="badge">${wc}</span>`:''}${k==='log'&&S.log.length?`<span class="badge b">${S.log.length}</span>`:''}</button>`).join('')).join('');
+ $('#nav').innerHTML=NAV.map(([g,items])=>[g,items.filter(([k])=>canEdit()||VIEW_PAGES.includes(k))]).filter(([g,items])=>items.length).map(([g,items])=>`<div class="grp">${g}</div>`+items.map(([k,l])=>`<button class="${pg===k?'on':''}" onclick="goPage('${k}')">${ico(k)}${l}${k==='stat'&&wc?`<span class="badge">${wc}</span>`:''}${k==='log'&&S.log.length?`<span class="badge b">${S.log.length}</span>`:''}${k==='req'&&RQ.list.length?`<span class="badge">${RQ.list.length}</span>`:''}</button>`).join('')).join('');
  renderToday();
  const[tt,td]=TITLE[pg];$('#navCur').textContent=tt;
  const dtd=pg==='cal'&&!canEdit()?'이름 옆 파란 →는 근무자끼리 교대한 거예요':td;
@@ -560,7 +569,7 @@ function pageCalList(){const days=monthDays(month),C=chainsFor(days);
   let b=hol&&S.holidays[d]?`<div class="lhn">${esc(S.holidays[d])}</div>`:'';
   if(!o)b+='<div class="lnd">-</div>';else if(o._nd)b+=`<div class="lnd"><b>${esc(o._nd)}</b> · 근무 없음</div>`;else['wd','d','n'].forEach(t=>{if(o[t])b+=slotList(d,t,o[t])});
   return `<div class="${cls}"${d===TODAY?' id="lrToday"':''}><div class="ld" data-d="${d}"><b>${+d.slice(8)}</b>${DOW[w]}</div><div class="lb">${b}</div></div>`}).join('');
- return `<div class="card" style="padding:6px 10px"><div class="lst m-${mode}" id="cal">${rows}</div></div>${S.notes?`<div class="card"><h3 style="font-size:14px">비고</h3><div style="white-space:pre-wrap;color:var(--sub);font-size:13.5px;line-height:1.7">${esc(S.notes)}</div></div>`:''}`}
+ return `<div class="card" style="padding:6px 10px"><div class="lst m-${mode}" id="cal">${rows}</div></div>${notesFor(month)?`<div class="card"><h3 style="font-size:14px">비고</h3><div style="white-space:pre-wrap;color:var(--sub);font-size:13.5px;line-height:1.7">${esc(notesFor(month))}</div></div>`:''}`}
 function pageCal(){
  if(calView==='list')return pageCalList();
  const days=monthDays(month),C=chainsFor(days),m=+month.slice(5);
@@ -576,7 +585,7 @@ function pageCal(){
  return `<div class="sheetHint noprint" style="display:none;font-size:12.5px;color:var(--sub);margin:0 0 6px">↔ 근무표는 좌우로 밀어서 보세요</div><div class="card"><div class="sheetWrap"><div class="sheet m-${mode}" id="sheet">
   <h2>${m}월 당직 부관 근무표</h2>
   <div class="meta"><span>작성자 : ${esc(S.author)}</span><span>수정일 : ${S.edited?editedFmt(S.edited):'-'}</span><span>기존, <span class="c-ex">공제</span>, <span class="c-new">신규</span>, <span style="color:#c62828">제외</span></span></div>
-  <div class="cal" id="cal">${h}</div><div class="rotlines">${rl}</div><div class="notes">${esc(S.notes)}</div>
+  <div class="cal" id="cal">${h}</div><div class="rotlines">${rl}</div><div class="notes">${esc(notesFor(month))}</div>
  </div></div>
  <div class="fr noprint" style="margin-top:12px"><button class="btn pri" onclick="copyForHwp()">한글로 복사</button><button class="btn" onclick="saveForHwp()">한글용 파일 저장</button><span class="hint" style="margin:0">[한글로 복사] 후 한글에서 Ctrl+V → 표·색상 그대로 붙어요. 안 되면 [한글용 파일 저장] 후 한글에서 열어 HWP로 저장하세요.</span></div></div>`;
 }
@@ -598,8 +607,8 @@ function askBar(b){
  const C=chainsFor([...new Set(sel.map(s=>s.d))]);const fin=s=>{const c=C[s.d]&&C[s.d][s.t];return c?c[c.length-1]:''};
  const lab=s=>`${fmt(s.d)} ${TN[s.t]} <b class="k">${esc(fin(s)||'?')}</b>`;
  if(sel.length===1){const s=sel[0],cur=fin(s);const opts=Object.keys(S.people).filter(n=>n!==cur&&!(S.people[n].out&&S.people[n].out<=s.d)).map(n=>`<option>${esc(n)}</option>`).join('');
-  b.innerHTML=`<span>☑ ${lab(s)}</span><span class="hint">바꿀 근무를 하나 더 체크하세요 · 다른 달은 위 ▶로 넘어가서 체크</span><span style="color:#9AA3AE">또는 대근자</span><select id="ask_p">${opts}</select><button class="btn sm" onclick="askSub()">대근 문구</button><span style="flex:1"></span><button class="btn sm" onclick="sel=[];render()">선택 해제</button><button class="btn sm" onclick="setMode('view')">끝내기</button>`;return}
- b.innerHTML=`<span>☑ ${lab(sel[0])} ⇄ ${lab(sel[1])}</span><button class="btn sm pri" onclick="askSwap()">📋 건의 문구 만들기</button><span style="flex:1"></span><button class="btn sm" onclick="sel=[];render()">선택 해제</button><button class="btn sm" onclick="setMode('view')">끝내기</button>`}
+  b.innerHTML=`<span>☑ ${lab(s)}</span><span class="hint">바꿀 근무를 하나 더 체크하세요 · 다른 달은 위 ▶로 넘어가서 체크</span><span style="color:#9AA3AE">또는 대근자</span><select id="ask_p">${opts}</select>${RQ_ON?`<button class="btn sm" onclick="reqSub()">✉ 대근 건의</button>`:''}<button class="btn sm" onclick="askSub()">대근 문구</button><span style="flex:1"></span><button class="btn sm" onclick="sel=[];render()">선택 해제</button><button class="btn sm" onclick="setMode('view')">끝내기</button>`;return}
+ b.innerHTML=`<span>☑ ${lab(sel[0])} ⇄ ${lab(sel[1])}</span>${RQ_ON?`<button class="btn sm pri" onclick="reqSwap()">✉ 건의 올리기</button><button class="btn sm" onclick="askSwap()">📋 문구만 복사</button>`:`<button class="btn sm pri" onclick="askSwap()">📋 건의 문구 만들기</button>`}<span style="flex:1"></span><button class="btn sm" onclick="sel=[];render()">선택 해제</button><button class="btn sm" onclick="setMode('view')">끝내기</button>`}
 async function askShow(t){if(await modal({msg:'단톡방에 올릴 교대 건의 문구예요.\n관리자가 확인 후 근무표에 반영해요.\n\n'+t,ok:'문구 복사',cancel:'닫기'}))copyPlain(t)}
 function askSwap(){const C=chainsFor([...new Set(sel.map(s=>s.d))]);const fin=s=>{const c=C[s.d]&&C[s.d][s.t];return c?c[c.length-1]:''};
  let[x,y]=sel;const a=fin(x),b=fin(y);if(!a||!b)return note('근무자가 없는 칸은 교대할 수 없어요.');if(a===b)return note('두 근무의 근무자가 같은 사람이에요.');
@@ -827,7 +836,7 @@ function pageSet(){const names=Object.keys(S.people);
   <div class="fr"><label style="width:70px">부대</label><input id="s_un" value="${esc(S.unitNum||'')}" style="width:70px" placeholder="숫자"><input id="s_uname" value="${esc(S.unitName||'')}" style="flex:1" placeholder="부대 이름"></div>
   <div class="fr" ${ONLINE?'style="display:none"':''}><label style="width:70px">내 이름</label><select id="s_me"><option value="">(선택 안 함)</option>${names.map(n=>`<option ${S.me===n?'selected':''}>${esc(n)}</option>`).join('')}</select><span class="hint" style="margin:0">내 근무에 주황 테두리 + 다음 근무 표시</span></div>
   <div style="font-size:13px;color:var(--sub);font-weight:600;margin-top:10px">하단 비고 (근무표 아래 파란 글씨로 출력)</div>
-  <textarea id="s_n" rows="5" style="width:100%;margin-top:6px">${esc(S.notes)}</textarea>
+  <p class="hint" style="margin:4px 0 0">공제 기간은 [인원·공제·파견]에 넣으면 그 달 근무표 비고 아래에 자동으로 적혀요. 여기에는 따로 적지 않아도 돼요.</p><textarea id="s_n" rows="5" style="width:100%;margin-top:6px">${esc(S.notes)}</textarea>
   <div class="fr"><button class="btn pri" onclick="saveSet()">저장</button></div></div>
   ${ONLINE?onlineSetCard():''}<div class="card"><h3>백업</h3><p class="desc">${ONLINE?'독립망 PC 파일과 주고받을 때 사용해요. ':''}데이터는 이 PC의 브라우저(크롬·엣지 각각 따로)에 저장돼요. 브라우저 기록을 지우거나 파일 이름·위치를 바꾸면 사라질 수 있으니 바뀔 때마다 백업해 두세요.</p>
   <div class="fr"><button class="btn pri" onclick="exportJSON()">백업 파일 저장</button><button class="btn" onclick="document.getElementById('imp').click()">백업 불러오기</button></div>
@@ -856,7 +865,7 @@ function hwpHTML(){
  }
  const rl=['wd','d','n'].map(t=>`<span style="color:#C0392B">{${S.rot[t].length}명}</span>${TL[t]} : ${S.rot[t].map(nm).join(', ')}`).join('<br>------------------------------------------------<br>');
  h+=`<tr><td colspan="7" style="${B}${F}text-align:center;font-size:10pt;padding:6px">${rl}</td></tr>`;
- h+=`<tr><td colspan="7" style="${B}${F}color:#2A56C6;font-size:11pt;padding:6px">${esc(S.notes).replace(/\n/g,'<br>')}</td></tr>`;
+ h+=`<tr><td colspan="7" style="${B}${F}color:#2A56C6;font-size:11pt;padding:6px">${esc(notesFor(month)).replace(/\n/g,'<br>')}</td></tr>`;
  return h+'</table>';
 }
 function copyForHwp(){const html=hwpHTML();
@@ -908,6 +917,64 @@ function pageMe(){const names=Object.keys(S.people).sort((a,b)=>a.localeCompare(
  if(ONLINE)h+=gcalCard(me,list);
  if(ONLINE)h+=`<div class="card"><h3>이 기기</h3><p class="desc">부대번호를 기억하고 있어요. 공용 휴대폰이면 지워주세요.</p><button class="btn danger" onclick="forgetDevice()">이 기기에서 부대번호 지우기</button></div>`;
  return h}
+
+/* ================= 교대 건의함 (온라인 모드 · Firebase Firestore) =================
+   - 인원: 근무 두 개 체크 → [건의 올리기] (부대번호로 암호화해서 저장, 근무표는 안 바뀜)
+   - 관리자: 건의함에서 [승인] → 근무표에 교대가 들어가고 건의는 지워짐 → [게시]
+   - 관리자가 이미 직접 바꾼 건의는 "이미 반영됨(중복)"으로 표시 */
+const FB={pid:'',key:''};// Firebase 프로젝트 ID, 웹 API 키 — 비어 있으면 건의함 꺼짐(문구 복사만)
+const RQ_ON=ONLINE&&!!(FB.pid&&FB.key);
+const RQ={list:[],loaded:false,loading:false,err:'',key:null,tried:false};
+const FS=()=>`https://firestore.googleapis.com/v1/projects/${FB.pid}/databases/(default)/documents`;
+async function rqKey(){if(!RQ.key)RQ.key=await kdf(G.unit,te.encode('dangjik-req-v1'));return RQ.key}
+async function rqLoad(force){if(!RQ_ON||!G.unlocked||RQ.loading||(RQ.loaded&&!force))return;RQ.loading=true;RQ.err='';
+ try{const r=await fetch(`${FS()}/dutyReq?pageSize=200&key=${FB.key}`,{cache:'no-store'});if(!r.ok)throw new Error('불러오기 실패 '+r.status);const j=await r.json();const k=await rqKey();const out=[];
+  for(const d of j.documents||[]){const f=d.fields||{};try{const o=await decWith(k,{iv:f.iv.stringValue,ct:f.ct.stringValue});o.doc=d.name;out.push(o)}catch(e){}}
+  RQ.list=out.sort((a,b)=>a.ts-b.ts);RQ.loaded=true}catch(e){RQ.err=e.message}finally{RQ.loading=false;render()}}
+async function rqPost(o){const e=await encWith(await rqKey(),o);const r=await fetch(`${FS()}/dutyReq?key=${FB.key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{iv:{stringValue:e.iv},ct:{stringValue:e.ct},ts:{integerValue:String(o.ts)}}})});if(!r.ok)throw new Error('올리기 실패 '+r.status)}
+async function rqDel(doc){const r=await fetch(`https://firestore.googleapis.com/v1/${doc}?key=${FB.key}`,{method:'DELETE'});if(!r.ok&&r.status!==404)throw new Error('지우기 실패 '+r.status);RQ.list=RQ.list.filter(x=>x.doc!==doc)}
+// 지금 근무표 기준으로 건의 상태 판단: ok(승인 가능) / dup(이미 반영) / changed(근무가 바뀜)
+function rqState(o){if(o.type==='swap'){const fa=finalOf(o.a.d,o.a.t),fb=finalOf(o.b.d,o.b.t);
+  if(fa===o.b.who&&fb===o.a.who)return'dup';if(fa===o.a.who&&fb===o.b.who)return'ok';return'changed'}
+ const fa=finalOf(o.a.d,o.a.t);if(fa===o.to)return'dup';if(fa===o.a.who)return'ok';return'changed'}
+function rqText(o){return o.type==='swap'?`${slotMsgD(o.a)} ${rkName(o.a.who)} <-> ${slotMsgD(o.b)} ${rkName(o.b.who)} 근무교대`:`${slotMsgD(o.a)} ${rkName(o.a.who)} → ${rkName(o.to)} 대근`}
+function rqAfterChange(){if(!RQ_ON||!RQ.list.length)return;const n=RQ.list.filter(o=>rqState(o)==='dup').length;if(n)setTimeout(()=>toast(`건의함에 이미 반영된(중복) 건의 ${n}건이 있어요 — 건의함에서 정리하세요`),2600)}
+function inDed(n,d){const p=S.people[n];return !!(p&&(p.periods||[]).some(q=>q.from<=d&&(!q.to||d<=q.to)))}
+function rqWarn(o){const w=[];const chk=(n,x)=>{if(inDed(n,x.d))w.push(`${n}은(는) ${fmt(x.d)}에 공제 기간이에요`)};
+ if(o.type==='swap'){chk(o.a.who,o.b);chk(o.b.who,o.a)}else chk(o.to,o.a);return w.length?'\n\n⚠ '+w.join('\n⚠ '):''}
+function rqSame(x,o){return x.type===o.type&&JSON.stringify([x.a,x.b,x.to])===JSON.stringify([o.a,o.b,o.to])}
+async function rqSubmit(o){
+ if(rqState(o)==='dup')return note('이미 그렇게 바뀌어 있어요. 건의할 필요가 없어요.');
+ const wn=rqWarn(o);if(wn&&!(await ask('확인해 주세요.'+wn+'\n\n그래도 건의를 올릴까요?')))return;
+ await rqLoad(true);if(RQ.list.some(x=>rqSame(x,o)))return note('같은 건의가 이미 건의함에 있어요. 관리자 승인을 기다려 주세요.');
+ let by=ME();if(!by){by=await askText('건의하는 사람 이름을 적어주세요',(o.a&&o.a.who)||'');if(by===null)return;by=by.trim()}
+ o.by=by;o.ts=Date.now();o.id=o.ts+'-'+Math.random().toString(36).slice(2,7);
+ try{await rqPost(o)}catch(e){return note('건의를 올리지 못했어요.\n'+e.message)}
+ sel=[];mode='view';RQ.loaded=false;await rqLoad(true);
+ const t=rqText(o)+(o.type==='swap'?'입니다.':'입니다.');
+ if(await modal({msg:'건의를 올렸어요. 관리자가 승인하면 근무표에 반영돼요.\n\n'+t+'\n\n단톡방에도 알리려면 문구를 복사하세요.',ok:'문구 복사',cancel:'닫기'}))copyPlain(t)}
+function reqSwap(){const C=chainsFor([...new Set(sel.map(s=>s.d))]);const fin=s=>{const c=C[s.d]&&C[s.d][s.t];return c?c[c.length-1]:''};
+ let[x,y]=sel;if(!fin(x)||!fin(y))return note('근무자가 없는 칸은 교대할 수 없어요.');if(fin(x)===fin(y))return note('두 근무의 근무자가 같은 사람이에요.');if(y.d<x.d)[x,y]=[y,x];
+ rqSubmit({type:'swap',a:{d:x.d,t:x.t,who:fin(x)},b:{d:y.d,t:y.t,who:fin(y)}})}
+function reqSub(){const s=sel[0],c=chainsFor([s.d])[s.d],cur=c&&c[s.t]?c[s.t][c[s.t].length-1]:'';const n=$('#ask_p').value;if(!cur)return note('근무자가 없는 칸이에요.');if(!n)return;
+ rqSubmit({type:'sub',a:{d:s.d,t:s.t,who:cur},b:null,to:n})}
+async function rqApprove(id){const o=RQ.list.find(x=>x.id===id);if(!o)return;const st=rqState(o);
+ if(st==='dup'){if(await ask('이미 근무표에 반영된 건의예요(중복).\n\n'+rqText(o)+'\n\n건의함에서 지울까요?')){await rqDel(o.doc).catch(e=>note(e.message));render()}return}
+ if(st==='changed'){if(await ask('건의를 올린 뒤 근무가 바뀌어서 그대로 승인할 수 없어요.\n\n'+rqText(o)+'\n\n반려(건의함에서 삭제)할까요?')){await rqDel(o.doc).catch(e=>note(e.message));render()}return}
+ if(!(await ask('승인할까요? 근무표에 바로 들어가요.\n\n'+rqText(o)+'\n건의: '+(o.by||'-')+rqWarn(o))))return;
+ if(o.type==='swap')applySwap({d:o.a.d,t:o.a.t},{d:o.b.d,t:o.b.t});else applySub({d:o.a.d,t:o.a.t},o.to);
+ try{await rqDel(o.doc)}catch(e){note('근무표에는 넣었는데 건의함에서 지우지 못했어요. 나중에 [삭제]를 눌러주세요.')}render()}
+async function rqReject(id){const o=RQ.list.find(x=>x.id===id);if(!o)return;if(!(await ask('이 건의를 반려(삭제)할까요?\n\n'+rqText(o))))return;await rqDel(o.doc).catch(e=>note(e.message));render()}
+async function rqCancelMine(id){const o=RQ.list.find(x=>x.id===id);if(!o)return;if(!(await ask('내 건의를 취소할까요?\n\n'+rqText(o))))return;await rqDel(o.doc).catch(e=>note(e.message));render()}
+function pageReq(){
+ if(!RQ_ON)return `<div class="card"><p class="desc">건의함이 아직 연결되지 않았어요. 근무표에서 [✉ 교대 건의]로 문구를 만들어 단톡방에 올려주세요.</p></div>`;
+ const me=ME();
+ const tag={ok:'<span class="tag ok">승인 가능</span>',dup:'<span class="tag sw">이미 반영됨(중복)</span>',changed:'<span class="tag out">근무가 바뀜</span>'};
+ const rows=RQ.list.map(o=>{const st=rqState(o);return `<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0"><div class="fr" style="gap:6px;flex-wrap:wrap">${tag[st]}<span class="hint" style="margin:0">${tsFmt(o.ts)} · 건의 ${esc(o.by||'-')}</span></div><div style="font-weight:700;margin:6px 0;word-break:keep-all">${esc(rqText(o))}</div><div class="fr" style="gap:6px;justify-content:flex-end">${canEdit()?`<button class="btn sm pri" onclick="rqApprove('${o.id}')">${st==='ok'?'승인':'확인'}</button><button class="btn sm danger" onclick="rqReject('${o.id}')">반려</button>`:(me&&o.by===me?`<button class="btn sm danger" onclick="rqCancelMine('${o.id}')">취소</button>`:'')}</div></div>`}).join('');
+ return `<div class="card"><div class="fr" style="gap:8px"><b>대기 중인 건의 ${RQ.list.length}건</b><span style="flex:1"></span><button class="btn sm" onclick="rqLoad(true)">↻ 새로고침</button></div>
+ ${RQ.err?`<p class="hint" style="color:var(--red)">${esc(RQ.err)}</p>`:''}${RQ.loading&&!RQ.loaded?'<p class="hint">불러오는 중…</p>':''}
+ ${RQ.list.length?rows:(RQ.loaded?'<p class="desc">대기 중인 건의가 없어요.</p>':'')}
+ <p class="hint">${canEdit()?'[승인]하면 근무표에 바로 들어가요. 다른 사람에게 보이려면 위의 [게시]를 눌러주세요. 이미 직접 바꾼 건의는 "이미 반영됨(중복)"으로 표시돼요.':'건의하려면 근무표에서 [✉ 교대 건의]를 누르고 근무를 체크하세요. 관리자가 승인하면 근무표에 반영돼요.'}</p></div>`}
 
 /* ================= 구글 캘린더 연동 (온라인 모드) =================
    - 이 페이지가 넣은 일정에만 표시(dutyRoster=1)를 달아, 다시 적용하면 그 일정만 바꾼다(다른 일정은 건드리지 않음)
@@ -1082,7 +1149,7 @@ async function setupDone(){const u=$('#su_u').value.trim(),a=$('#su_a').value.tr
  note('설정 완료! 이제 [게시]를 눌러 GitHub에 올려주세요.\n처음 게시할 때 GitHub 토큰을 한 번 등록해요.')}
 window.addEventListener('beforeunload',e=>{if(ONLINE&&G.dirty){e.preventDefault();e.returnValue=''}});
 
-const PAGES={me:pageMe,nd:pageNd,cal:pageCal,log:pageLog,rot:pageRot,ppl:pagePpl,new:pageNew,hol:pageHol,close:pageClose,stat:pageStat,set:pageSet};
+const PAGES={req:pageReq,me:pageMe,nd:pageNd,cal:pageCal,log:pageLog,rot:pageRot,ppl:pagePpl,new:pageNew,hol:pageHol,close:pageClose,stat:pageStat,set:pageSet};
 if(ONLINE){boot()}else{
 migrate();applyPreset();
 if(RESET_NOTE){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
