@@ -506,7 +506,8 @@ function render(){
  if(!G.unlocked)return;
  if(ONLINE&&typeof gcalResume==='function')setTimeout(gcalResume,0);
  if(!canEdit()&&!VIEW_PAGES.includes(pg))pg='cal';
- if(!canEdit()&&mode!=='view'){mode='view';sel=[]}
+ if(!canEdit()&&mode!=='view'&&mode!=='ask'){mode='view';sel=[]}
+ if(canEdit()&&mode==='ask'){mode='view';sel=[]}
  $('#bNum').textContent=S.unitNum||'';$('#bName').textContent=S.unitName||'';
  if(ONLINE){$('#admBtn').style.display='';$('#admBtn').innerHTML=G.admin?'🔓 관리자 나가기':'🔒 관리자';$('#roleTag').style.display='';$('#roleTag').className='roleTag'+(G.admin?' adm':'');$('#roleTag').textContent=G.admin?'관리자':'보기 전용';$('#bakBtn').style.display=G.admin?'':'none'}
  $('#themeBtn').innerHTML=theme()==='dark'?'☀ 주간 화면':'☾ 야간 화면';
@@ -517,16 +518,17 @@ function render(){
  const[tt,td]=TITLE[pg];$('#navCur').textContent=tt;
  const dtd=pg==='cal'&&!canEdit()?'이름 옆 파란 →는 근무자끼리 교대한 거예요':td;
  const viewSeg=pg==='cal'?`<div class="seg noprint"><button class="${calView==='grid'?'on':''}" onclick="calView='grid';render()">표</button><button class="${calView==='list'?'on':''}" onclick="calView='list';G.scrolled=false;render()">목록</button></div>`:'';
+ const askSeg=pg==='cal'&&!canEdit()?`<div class="seg noprint"><button class="${mode==='view'?'on':''}" onclick="setMode('view')">보기</button><button class="${mode==='ask'?'on sw':''}" onclick="setMode('ask')">✉ 교대 건의</button></div>`:'';
  const editSeg=pg==='cal'&&canEdit()?`<div class="seg noprint"><button class="${mode==='view'?'on':''}" onclick="setMode('view')">보기</button><button class="${mode==='swap'?'on sw':''}" onclick="setMode('swap')">☑ 교대</button><button class="${mode==='hol'?'on':''}" onclick="setMode('hol')">휴일 지정</button></div>`:'';
  const banner=ONLINE&&G.admin&&G.dirty?`<div class="dirty noprint">⚠ <span><b>게시하지 않은 변경</b>이 있어요. 게시해야 다른 사람 화면에 반영돼요.</span><span style="flex:1"></span><button class="btn sm pri" onclick="publish()">게시</button><button class="btn sm" onclick="discardDraft()">변경 취소</button></div>`:'';
- $('#main').innerHTML=`${banner}<div class="ph"><div><h1>${tt}</h1><p>${dtd}</p></div><span class="sp"></span>${viewSeg}${editSeg}</div><div class="panel">${PAGES[pg]()}</div>`;
+ $('#main').innerHTML=`${banner}<div class="ph"><div><h1>${tt}</h1><p>${dtd}</p></div><span class="sp"></span>${viewSeg}${editSeg}${askSeg}</div><div class="panel">${PAGES[pg]()}</div>`;
  if(pg==='cal'&&calView==='list'&&!G.scrolled&&month===TODAY.slice(0,7)){G.scrolled=true;const t=document.getElementById('lrToday');if(t)setTimeout(()=>t.scrollIntoView({block:'center'}),0)}
  renderBar();
 }
 function toggleNav(){$('#side').classList.toggle('open')}
 function goPage(k){pg=k;const sd=$('#side');if(sd)sd.classList.remove('open');if(k!=='cal'){mode='view';sel=[]}render();window.scrollTo(0,0)}
 function setMode(m){mode=m;sel=[];if(pg!=='cal')pg='cal';render()}
-function go(k){month=shiftMonth(month,k);if(mode!=='swap')sel=[];render()}
+function go(k){month=shiftMonth(month,k);if(mode!=='swap'&&mode!=='ask')sel=[];render()}
 function goToday(){month=TODAY.slice(0,7);if(mode!=='swap')sel=[];render()}
 function theme(){try{return localStorage.getItem(THEME_KEY)||'light'}catch(e){return'light'}}
 function toggleTheme(){try{localStorage.setItem(THEME_KEY,theme()==='dark'?'light':'dark')}catch(e){}render()}
@@ -579,7 +581,8 @@ function pageCal(){
  <div class="fr noprint" style="margin-top:12px"><button class="btn pri" onclick="copyForHwp()">한글로 복사</button><button class="btn" onclick="saveForHwp()">한글용 파일 저장</button><span class="hint" style="margin:0">[한글로 복사] 후 한글에서 Ctrl+V → 표·색상 그대로 붙어요. 안 되면 [한글용 파일 저장] 후 한글에서 열어 HWP로 저장하세요.</span></div></div>`;
 }
 document.addEventListener('click',e=>{
- if(pg!=='cal'||!e.target.closest('#cal')||!canEdit())return;
+ if(pg!=='cal'||!e.target.closest('#cal'))return;
+ if(!canEdit()){if(mode!=='ask')return;const sl=e.target.closest('.slot');if(!sl)return;const k={d:sl.dataset.d,t:sl.dataset.t};const i=sel.findIndex(s=>s.d===k.d&&s.t===k.t);if(i>=0)sel.splice(i,1);else{sel.push(k);if(sel.length>2)sel.shift()}render();return}
  const db=e.target.closest('.dbar,.ld'),sl=e.target.closest('.slot');
  if(mode==='hol'){if(db)toggleHoliday(db.dataset.d);return}
  if(!sl)return;
@@ -588,10 +591,26 @@ document.addEventListener('click',e=>{
  if(i>=0)sel.splice(i,1);else{sel.push(k);if(sel.length>2)sel.shift()}
  render();
 });
+/* 보기 전용 인원: 교대 건의 문구 만들기 (근무표는 바뀌지 않음 — 단톡방에 올리면 관리자가 반영) */
+function slotMsgD(x){const[,m,dd]=x.d.split('-');return +m+'.'+(+dd)+(x.t==='d'?'(주간)':x.t==='n'?'(야간)':'')}
+function askBar(b){
+ if(!sel.length){b.innerHTML=`<span class="k">교대 건의</span><span>내 근무와 바꿀 근무를 하나씩 체크하면 단톡방에 올릴 문구를 만들어줘요 (근무표는 바뀌지 않아요)</span><span style="flex:1"></span><button class="btn sm" onclick="setMode('view')">끝내기</button>`;return}
+ const C=chainsFor([...new Set(sel.map(s=>s.d))]);const fin=s=>{const c=C[s.d]&&C[s.d][s.t];return c?c[c.length-1]:''};
+ const lab=s=>`${fmt(s.d)} ${TN[s.t]} <b class="k">${esc(fin(s)||'?')}</b>`;
+ if(sel.length===1){const s=sel[0],cur=fin(s);const opts=Object.keys(S.people).filter(n=>n!==cur&&!(S.people[n].out&&S.people[n].out<=s.d)).map(n=>`<option>${esc(n)}</option>`).join('');
+  b.innerHTML=`<span>☑ ${lab(s)}</span><span class="hint">바꿀 근무를 하나 더 체크하세요 · 다른 달은 위 ▶로 넘어가서 체크</span><span style="color:#9AA3AE">또는 대근자</span><select id="ask_p">${opts}</select><button class="btn sm" onclick="askSub()">대근 문구</button><span style="flex:1"></span><button class="btn sm" onclick="sel=[];render()">선택 해제</button><button class="btn sm" onclick="setMode('view')">끝내기</button>`;return}
+ b.innerHTML=`<span>☑ ${lab(sel[0])} ⇄ ${lab(sel[1])}</span><button class="btn sm pri" onclick="askSwap()">📋 건의 문구 만들기</button><span style="flex:1"></span><button class="btn sm" onclick="sel=[];render()">선택 해제</button><button class="btn sm" onclick="setMode('view')">끝내기</button>`}
+async function askShow(t){if(await modal({msg:'단톡방에 올릴 교대 건의 문구예요.\n관리자가 확인 후 근무표에 반영해요.\n\n'+t,ok:'문구 복사',cancel:'닫기'}))copyPlain(t)}
+function askSwap(){const C=chainsFor([...new Set(sel.map(s=>s.d))]);const fin=s=>{const c=C[s.d]&&C[s.d][s.t];return c?c[c.length-1]:''};
+ let[x,y]=sel;const a=fin(x),b=fin(y);if(!a||!b)return note('근무자가 없는 칸은 교대할 수 없어요.');if(a===b)return note('두 근무의 근무자가 같은 사람이에요.');
+ if(y.d<x.d)[x,y]=[y,x];askShow(`${slotMsgD(x)} ${rkName(fin(x))} <-> ${slotMsgD(y)} ${rkName(fin(y))} 근무교대입니다.`)}
+function askSub(){const s=sel[0],C=chainsFor([s.d]),c=C[s.d]&&C[s.d][s.t],cur=c?c[c.length-1]:'';const n=$('#ask_p').value;if(!cur)return note('근무자가 없는 칸이에요.');if(!n)return;
+ askShow(`${slotMsgD(s)} ${rkName(cur)} → ${rkName(n)} 대근입니다.`)}
 function renderBar(){
  const b=$('#bar');
  if(pg!=='cal'||mode==='view'){b.style.display='none';return}
  b.style.display='flex';
+ if(mode==='ask'){askBar(b);return}
  if(mode==='hol'){b.innerHTML=`<span class="k">휴일 지정</span><span>노란 날짜 줄을 누르면 휴일 지정/해제 — 근무는 자동으로 다시 맞춰져요</span><span style="flex:1"></span><button class="btn sm" onclick="setMode('view')">끝내기</button>`;return}
  if(!sel.length){b.innerHTML=`<span class="k">교대 모드</span><span>근무 두 개를 체크하면 교대, 한 개만 체크하면 대근 지정·교대 취소</span><span style="flex:1"></span><button class="btn sm" onclick="setMode('view')">끝내기</button>`;return}
  const C=chainsFor([...new Set(sel.map(s=>s.d))]);
