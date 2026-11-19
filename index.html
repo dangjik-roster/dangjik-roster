@@ -447,6 +447,15 @@ function curD(x,G){return x.k?((G||genFull()).dateOf[x.k]||null):x.d}
 function sd(x,G){const d=curD(x,G);return d?fmt(d):'<span style="color:var(--red)">근무 없음</span>'}
 function logText(e,G){return e.type==='swap'?`${sd(e.a,G)} ${TN[e.a.t]} <b>${esc(e.a.from)}</b> ⇄ ${sd(e.b,G)} ${TN[e.b.t]} <b>${esc(e.b.from)}</b>`:`${sd(e.a,G)} ${TN[e.a.t]} <b>${esc(e.a.from)}</b> → <b>${esc(e.a.to)}</b> 대근`}
 function logPlain(e){const G=genFull(),f=x=>{const d=curD(x,G);return d?fmt(d):'(근무 없음)'};return e.type==='swap'?`${f(e.a)} ${TN[e.a.t]} ${e.a.from} ⇄ ${f(e.b)} ${TN[e.b.t]} ${e.b.from}`:`${f(e.a)} ${TN[e.a.t]} ${e.a.from} → ${e.a.to} 대근`}
+/* 근무교대 공지 문구 (단톡방 붙여넣기용) — 예: 12.1 하사 홍길동 <-> 12.8 하사 김철수 근무교대입니다. */
+function rkName(n){const p=S.people[n],r=p&&p.rank;return r?r+' '+n:n}
+function msgD(x,G){const d=curD(x,G);if(!d)return'?';const[,m,dd]=d.split('-');return +m+'.'+(+dd)+(x.t==='d'?'(주간)':x.t==='n'?'(야간)':'')}
+function shareMsg(e,G){G=G||genFull();let[x,y]=[e.a,e.b];if(e.type==='swap'&&(curD(y,G)||'')<(curD(x,G)||''))[x,y]=[y,x];return e.type==='swap'?`${msgD(x,G)} ${rkName(x.from)} <-> ${msgD(y,G)} ${rkName(y.from)} 근무교대입니다.`:`${msgD(e.a,G)} ${rkName(e.a.from)} → ${rkName(e.a.to)} 대근입니다.`}
+function copyPlain(t){const fb=()=>{const a=document.createElement('textarea');a.value=t;a.setAttribute('readonly','');a.style.cssText='position:fixed;top:0;left:0;opacity:0';document.body.appendChild(a);a.select();a.setSelectionRange(0,t.length);let ok=false;try{ok=document.execCommand('copy')}catch(e){}a.remove();toast(ok?'문구를 복사했어요 — 단톡방에 붙여넣으세요':'복사가 안 돼요. 문구를 길게 눌러 직접 복사해 주세요')};
+ try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(()=>toast('문구를 복사했어요 — 단톡방에 붙여넣으세요'),fb);return}}catch(e){}fb()}
+async function shareLog(id){const e=S.log.find(x=>x.id===id);if(!e)return;const t=shareMsg(e);
+ const miss=[...new Set(sides(e).flatMap(x=>[x.from,x.to]))].filter(n=>S.people[n]&&!S.people[n].rank);
+ if(await modal({msg:'단톡방에 붙여넣을 문구예요.\n\n'+t+(miss.length?'\n\n※ 계급이 비어 있어요: '+miss.join(', ')+'\n[인원·공제·파견]에서 계급을 넣으면 문구에 같이 나와요.':''),ok:'문구 복사',cancel:'닫기'}))copyPlain(t)}
 function sameRef(x,r){return r.k?x.k===r.k:(!x.k&&x.d===r.d&&x.t===r.t)}
 function findLog(d,t){const r=slotRef(d,t),top=topRef(r);if(!top)return null;for(let i=S.log.length-1;i>=0;i--){const e=S.log[i];if(sides(e).some(x=>sameRef(x,r)&&x.to===top))return e}return null}
 async function cancelLog(id,skipConfirm){const e=S.log.find(x=>x.id===id);if(!e)return;
@@ -462,11 +471,11 @@ function doSwap(){const[a,b]=sel;const ra=slotRef(a.d,a.t),rb=slotRef(b.d,b.t);
  const pa=finalOf(a.d,a.t),pb=finalOf(b.d,b.t);if(pa===pb)return note('두 근무의 근무자가 같은 사람입니다.');
  pushTo(ra,pb);pushTo(rb,pa);
  S.log.push({id:Date.now(),ts:Date.now(),type:'swap',a:{...ra,from:pa,to:pb},b:{...rb,from:pb,to:pa}});
- sel=[];save();toast(`교대 완료: ${pa} ⇄ ${pb}`)}
+ sel=[];save();toast(`교대 완료: ${pa} ⇄ ${pb}`);shareLog(S.log[S.log.length-1].id)}
 function doReplace(){const s=sel[0],n=$('#bar_p').value;if(!n)return;const r=slotRef(s.d,s.t);
  if(s.d>=S.anchor.date&&!r.k)return note('근무자가 없는 칸이에요.');
  const from=finalOf(s.d,s.t);pushTo(r,n);
- S.log.push({id:Date.now(),ts:Date.now(),type:'sub',a:{...r,from,to:n},b:null});sel=[];save();toast(`${fmt(s.d)} ${TN[s.t]} → ${n} 대근 지정`)}
+ S.log.push({id:Date.now(),ts:Date.now(),type:'sub',a:{...r,from,to:n},b:null});sel=[];save();toast(`${fmt(s.d)} ${TN[s.t]} → ${n} 대근 지정`);shareLog(S.log[S.log.length-1].id)}
 async function undoSel(){const s=sel[0];const e=findLog(s.d,s.t);
  if(e)return await cancelLog(e.id);
  if(!await ask(`${fmt(s.d)} ${TN[s.t]}의 마지막 변경(종이표에서 옮겨온 기록)을 지울까요?\n상대 근무가 있으면 그쪽도 따로 지워주세요.`))return;
@@ -601,8 +610,8 @@ function pageLog(){
  if(!S.log.length)return `<div class="card"><div class="empty-st">아직 교대 기록이 없어요.<br>근무표에서 이름 두 개를 체크해 교대해 보세요.</div></div>`;
  const G=genFull();
  const rows=[...S.log].reverse().map(e=>{const ok=sides(e).every(x=>topRef(x)===x.to);const lost=sides(e).some(x=>x.k&&!G.dateOf[x.k]);
-  return `<tr><td>${tsFmt(e.ts)}</td><td><span class="tag ${e.type==='swap'?'sw':'new'}">${e.type==='swap'?'교대':'대근'}</span></td><td>${logText(e,G)}${lost?' <span class="tag out">근무를 찾을 수 없음</span>':ok?'':' <span class="tag out">뒤에 다른 변경 있음</span>'}</td><td style="text-align:right">${canEdit()?`<button class="btn sm danger" onclick="cancelLog(${e.id})">↶ 취소</button>`:''}</td></tr>`}).join('');
- return `<div class="card"><table class="t"><tr><th style="width:110px">기록 시각</th><th style="width:70px">구분</th><th>내용 (현재 날짜 기준)</th><th style="width:90px"></th></tr>${rows}</table>
+  return `<tr><td>${tsFmt(e.ts)}</td><td><span class="tag ${e.type==='swap'?'sw':'new'}">${e.type==='swap'?'교대':'대근'}</span></td><td>${logText(e,G)}${lost?' <span class="tag out">근무를 찾을 수 없음</span>':ok?'':' <span class="tag out">뒤에 다른 변경 있음</span>'}</td><td style="text-align:right;white-space:nowrap"><button class="btn sm" onclick="shareLog(${e.id})">📋 문구</button> ${canEdit()?`<button class="btn sm danger" onclick="cancelLog(${e.id})">↶ 취소</button>`:''}</td></tr>`}).join('');
+ return `<div class="card"><table class="t"><tr><th style="width:110px">기록 시각</th><th style="width:70px">구분</th><th>내용 (현재 날짜 기준)</th><th style="width:150px"></th></tr>${rows}</table>
  <p class="hint">교대는 <b>사람끼리 바꾼 차례</b>를 따라가요. 휴일·훈련으로 순번이 밀리면 교대도 그 사람 차례와 함께 다른 날짜로 옮겨지고, 위 날짜도 바뀐 날짜로 보여요.<br>같은 근무에 교대가 여러 번 있으면 <b>나중 것부터</b> 취소해야 해요. 종이표에서 옮겨온 11월 기록은 근무표에서 체크한 뒤 [마지막 변경 삭제]로 지울 수 있어요.</p></div>`;
 }
 
@@ -663,11 +672,13 @@ function pagePpl(){const names=Object.keys(S.people);const opts=names.map(n=>`<o
   <div class="fr"><label>시작</label><input type="date" id="pp_f"><label>마지막 날</label><input type="date" id="pp_t"><button class="btn pri" onclick="addPeriod()">추가</button></div></div>
   <div class="card"><h3>전출·근무 제외</h3><p class="desc">제외일부터 모든 순번에서 빠져요. 명단에는 빨간 줄로 남아요.</p>
   <div class="fr"><select id="po_n">${opts}</select><label>제외 시작일</label><input type="date" id="po_d"><button class="btn" onclick="setOut()">제외 처리</button></div></div></div>`;
- h+=`<div class="card"><h3>인원 명단 <span class="tag ok">${names.length}명</span></h3><table class="t"><tr><th>이름</th><th>${+month.slice(5)}월 상태</th><th>공제·파견 기간</th><th>전입일</th><th>제외일</th><th></th></tr>`;
+ h+=`<div class="card"><h3>인원 명단 <span class="tag ok">${names.length}명</span></h3><table class="t"><tr><th>이름</th><th>계급</th><th>${+month.slice(5)}월 상태</th><th>공제·파견 기간</th><th>전입일</th><th>제외일</th><th></th></tr>`;
  names.forEach(n=>{const p=S.people[n];
-  h+=`<tr><td class="${nameCls(n)}"><b>${esc(n)}</b></td><td>${statusTag(n)}</td><td>${p.periods.map((q,i)=>`<div style="display:flex;gap:6px;align-items:center;padding:2px 0">${q.from} ~ ${q.to||'<b style="color:var(--red)">마지막 날 없음</b>'} <span style="color:var(--sub)">${esc(q.reason||'')}</span><button class="btn sm" onclick="editPeriod('${n}',${i})">수정</button><button class="btn sm danger" onclick="rmPeriod('${n}',${i})">✕</button></div>`).join('')||'<span style="color:var(--faint)">-</span>'}</td><td>${p.join?p.join+(p.kind==='cho'?' <span class="tag new">초임</span>':''):'-'}</td><td>${p.out?p.out+` <button class="btn sm" onclick="unOut('${n}')">취소</button>`:'-'}</td><td style="text-align:right"><button class="btn sm danger" onclick="delPerson('${n}')">삭제</button></td></tr>`});
+  h+=`<tr><td class="${nameCls(n)}"><b>${esc(n)}</b></td><td>${canEdit()?`<button class="btn sm" onclick="setRank('${n}')">${esc(p.rank||'계급 넣기')}</button>`:esc(p.rank||'')}</td><td>${statusTag(n)}</td><td>${p.periods.map((q,i)=>`<div style="display:flex;gap:6px;align-items:center;padding:2px 0">${q.from} ~ ${q.to||'<b style="color:var(--red)">마지막 날 없음</b>'} <span style="color:var(--sub)">${esc(q.reason||'')}</span><button class="btn sm" onclick="editPeriod('${n}',${i})">수정</button><button class="btn sm danger" onclick="rmPeriod('${n}',${i})">✕</button></div>`).join('')||'<span style="color:var(--faint)">-</span>'}</td><td>${p.join?p.join+(p.kind==='cho'?' <span class="tag new">초임</span>':''):'-'}</td><td>${p.out?p.out+` <button class="btn sm" onclick="unOut('${n}')">취소</button>`:'-'}</td><td style="text-align:right"><button class="btn sm danger" onclick="delPerson('${n}')">삭제</button></td></tr>`});
  return h+'</table></div>';
 }
+
+async function setRank(n){const v=await askText(n+' 계급 (예: 하사, 중사, 중사(진))\n교대 공지 문구에 같이 나와요. 비우면 이름만 나와요.',S.people[n].rank||'');if(v===null)return;S.people[n].rank=v.trim();save();render();toast(n+' 계급 '+(v.trim()?'→ '+v.trim():'지움'))}
 
 /* ---------- 전입자 ---------- */
 function addM(s,k){const x=pd(s),day=x.getDate();const d=new Date(x.getFullYear(),x.getMonth()+k,1);const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,last));return ds(d)}
@@ -899,15 +910,21 @@ function gcalCard(me,list){
 const GCAL_REDIR=location.origin+location.pathname.replace(/[^/]*$/,'');
 (function gcalCatch(){const h=location.hash||'';if(!/access_token=|error=/.test(h))return;
  const q=new URLSearchParams(h.slice(1));history.replaceState(null,'',location.pathname+location.search);
- const st=lsGet('dutyGcal_state');lsSet('dutyGcal_state',null);
- if(!st||q.get('state')!==st){lsSet('dutyGcal_pending',null);return}
+ const st=lsGet('dutyGcal_state');lsSet('dutyGcal_state',null);const qs=q.get('state')||'';
+ const am=qs.match(/^app-(apply|clear)-(.*)$/);// 안드로이드 앱에서 넘어온 로그인
+ if(am){lsSet('dutyGcal_pending',am[1]);const nm=decodeURIComponent(am[2]);if(nm&&!lsGet('dutyOnline_me'))lsSet('dutyOnline_me',nm)}
+ else if(!st||qs!==st){lsSet('dutyGcal_pending',null);return}
  if(q.get('error')){lsSet('dutyGcal_pending',null);setTimeout(()=>note('구글 로그인을 취소했거나 권한을 허용하지 않았어요.'),600);return}
  if(!(q.get('scope')||'').includes('calendar.events')){lsSet('dutyGcal_pending',null);setTimeout(()=>note('캘린더 권한에 체크해야 넣을 수 있어요. 다시 눌러 체크해주세요.'),600);return}
  gTok=q.get('access_token');gTokExp=Date.now()+(+q.get('expires_in')||3600)*1e3;
  try{sessionStorage.setItem('dutyGcal_tok',JSON.stringify([gTok,gTokExp]))}catch(e){}})();
 (function(){if(gTok)return;try{const t=JSON.parse(sessionStorage.getItem('dutyGcal_tok')||'null');if(t&&Date.now()<t[1]-60e3){gTok=t[0];gTokExp=t[1]}}catch(e){}})();
 function gTokOk(){return gTok&&Date.now()<gTokExp-60e3}
-function gLogin(action){const st=Math.random().toString(36).slice(2)+Date.now().toString(36);lsSet('dutyGcal_state',st);lsSet('dutyGcal_pending',action);
+const IN_APP=/DutyRosterApp/.test(navigator.userAgent);
+function gLogin(action){
+ // 안드로이드 앱 안에서는 구글이 로그인을 막아서, 크롬(외부 브라우저)에서 로그인·적용까지 처리
+ if(IN_APP){note('구글 로그인은 앱 안에서 안 돼서 크롬에서 열어요. 크롬에서 부대번호를 넣으면 캘린더 적용이 이어서 진행돼요.').then(()=>{location.href='https://accounts.google.com/o/oauth2/v2/auth?'+new URLSearchParams({client_id:GCAL_CID,redirect_uri:GCAL_REDIR,response_type:'token',scope:GCAL_SCOPE,include_granted_scopes:'true',state:'app-'+action+'-'+encodeURIComponent(ME()),prompt:'select_account'})});return}
+ const st=Math.random().toString(36).slice(2)+Date.now().toString(36);lsSet('dutyGcal_state',st);lsSet('dutyGcal_pending',action);
  location.href='https://accounts.google.com/o/oauth2/v2/auth?'+new URLSearchParams({client_id:GCAL_CID,redirect_uri:GCAL_REDIR,response_type:'token',scope:GCAL_SCOPE,include_granted_scopes:'true',state:st,prompt:'select_account'})}
 // 로그인 후 돌아오면(부대번호 입력·이름 선택이 끝난 뒤) 누르던 작업을 이어서 함
 function gcalResume(){const a=lsGet('dutyGcal_pending');if(!a||gBusy||!G.unlocked||!ME()||!gTokOk())return;lsSet('dutyGcal_pending',null);pg='me';
