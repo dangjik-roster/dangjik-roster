@@ -922,7 +922,7 @@ function pageMe(){const names=Object.keys(S.people).sort((a,b)=>a.localeCompare(
    - 인원: 근무 두 개 체크 → [건의 올리기] (부대번호로 암호화해서 저장, 근무표는 안 바뀜)
    - 관리자: 건의함에서 [승인] → 근무표에 교대가 들어가고 건의는 지워짐 → [게시]
    - 관리자가 이미 직접 바꾼 건의는 "이미 반영됨(중복)"으로 표시 */
-const FB={pid:'',key:''};// Firebase 프로젝트 ID, 웹 API 키 — 비어 있으면 건의함 꺼짐(문구 복사만)
+const FB={pid:'dangjik-roster',key:'AIzaSyBn76dc5HxMx7xdzLeT7TUYnHIXwBff2pg'};// Firebase 프로젝트 ID, 웹 API 키 — 비어 있으면 건의함 꺼짐(문구 복사만)
 const RQ_ON=ONLINE&&!!(FB.pid&&FB.key);
 const RQ={list:[],loaded:false,loading:false,err:'',key:null,tried:false};
 const FS=()=>`https://firestore.googleapis.com/v1/projects/${FB.pid}/databases/(default)/documents`;
