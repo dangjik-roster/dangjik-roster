@@ -514,6 +514,7 @@ function render(){
  if(!G.unlocked)return;
  if(ONLINE&&typeof gcalResume==='function')setTimeout(gcalResume,0);
  if(RQ_ON&&!RQ.tried){RQ.tried=true;setTimeout(()=>rqLoad(),0)}
+ if(RQ_ON)setTimeout(rqAdminNotice,0);
  if(!canEdit()&&!VIEW_PAGES.includes(pg))pg='cal';
  if(!canEdit()&&mode!=='view'&&mode!=='ask'){mode='view';sel=[]}
  if(canEdit()&&mode==='ask'){mode='view';sel=[]}
@@ -938,6 +939,12 @@ function rqState(o){if(o.type==='swap'){const fa=finalOf(o.a.d,o.a.t),fb=finalOf
   if(fa===o.b.who&&fb===o.a.who)return'dup';if(fa===o.a.who&&fb===o.b.who)return'ok';return'changed'}
  const fa=finalOf(o.a.d,o.a.t);if(fa===o.to)return'dup';if(fa===o.a.who)return'ok';return'changed'}
 function rqText(o){return o.type==='swap'?`${slotMsgD(o.a)} ${rkName(o.a.who)} <-> ${slotMsgD(o.b)} ${rkName(o.b.who)} 근무교대`:`${slotMsgD(o.a)} ${rkName(o.a.who)} → ${rkName(o.to)} 대근`}
+// 관리자로 들어오면 대기 중인 건의를 새로 불러와 알림(한 번)
+function rqAdminNotice(){if(!canEdit()){RQ.admSeen=false;RQ.notified=false;return}
+ if(!RQ.admSeen){RQ.admSeen=true;rqLoad(true);return}
+ if(!RQ.loaded||RQ.notified||RQ.loading)return;RQ.notified=true;const n=RQ.list.length;if(!n||pg==='req')return;
+ const ok=RQ.list.filter(o=>rqState(o)==='ok').length,dup=RQ.list.filter(o=>rqState(o)==='dup').length;
+ modal({msg:`📮 교대 건의가 ${n}건 있어요.\n\n승인 가능 ${ok}건${dup?` · 이미 반영됨(중복) ${dup}건`:''}${n-ok-dup?` · 근무가 바뀜 ${n-ok-dup}건`:''}\n\n`+RQ.list.slice(0,5).map(o=>'· '+rqText(o)).join('\n')+(n>5?`\n… 외 ${n-5}건`:''),ok:'건의함 보기',cancel:'나중에'}).then(v=>{if(v){pg='req';mode='view';sel=[];render();scrollTo(0,0)}})}
 function rqAfterChange(){if(!RQ_ON||!RQ.list.length)return;const n=RQ.list.filter(o=>rqState(o)==='dup').length;if(n)setTimeout(()=>toast(`건의함에 이미 반영된(중복) 건의 ${n}건이 있어요 — 건의함에서 정리하세요`),2600)}
 function inDed(n,d){const p=S.people[n];return !!(p&&(p.periods||[]).some(q=>q.from<=d&&(!q.to||d<=q.to)))}
 function rqWarn(o){const w=[];const chk=(n,x)=>{if(inDed(n,x.d))w.push(`${n}은(는) ${fmt(x.d)}에 공제 기간이에요`)};
