@@ -139,6 +139,7 @@ table.t tr:last-child td{border-bottom:none}
 .ln.chg{color:var(--chg)}
 .ln.fin{font-weight:700}
 .slot.mine{box-shadow:inset 0 0 0 2px #FF7A1A}
+.slot.dedw{background:rgba(229,57,53,.13);box-shadow:inset 0 0 0 2px #E53935}.slot .dw{color:#E53935;font-weight:800}
 .m-swap .slot{outline:1px dashed #6b7c93}
 .slot.sel{outline:3px solid #FF7A1A!important;background:#FFF1E4!important}
 .ck{position:absolute;left:3px;top:1px;font-size:13px;color:#C2560C}
@@ -273,7 +274,7 @@ table.t tr:last-child td{border-bottom:none}
  .card{border:none;padding:0;background:#fff}
  .sheet{border:none;padding:0;min-width:0}
  .cell.fixed .dbar::after{content:none}
- .slot.sel,.slot.mine{outline:none!important;box-shadow:none!important;background:transparent!important}
+ .slot.sel,.slot.mine,.slot.dedw{outline:none!important;box-shadow:none!important;background:transparent!important}.slot .dw{display:none!important}
  .ck{display:none}.m-swap .slot{outline:none}
  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
@@ -472,14 +473,15 @@ async function cancelLog(id,skipConfirm){const e=S.log.find(x=>x.id===id);if(!e)
   S.log=S.log.filter(x=>x.id!==id);save();return}
  if(!skipConfirm&&!await ask(`이 ${e.type==='swap'?'교대':'대근'}를 취소할까요?\n\n${logPlain(e)}\n\n${e.type==='swap'?'두 근무 모두':'이 근무가'} 원래대로 돌아갑니다.`))return;
  sides(e).forEach(popRef);S.log=S.log.filter(x=>x.id!==id);sel=[];save();toast((e.type==='swap'?'교대':'대근')+' 취소 — 원래대로 복구')}
-function doSwap(){return applySwap(sel[0],sel[1])}
+async function doSwap(){const[a,b]=sel,fa=finalOf(a.d,a.t),fb=finalOf(b.d,b.t);const w=rqWarn({type:'swap',a:{d:a.d,t:a.t,who:fa},b:{d:b.d,t:b.t,who:fb}});
+ if(w&&!(await ask('확인해 주세요.'+w+'\n\n그래도 교대할까요?')))return;return applySwap(a,b)}
 function applySwap(a,b,after){const ra=slotRef(a.d,a.t),rb=slotRef(b.d,b.t);
  if((a.d>=S.anchor.date&&!ra.k)||(b.d>=S.anchor.date&&!rb.k))return note('근무자가 없는 칸은 교대할 수 없어요.');
  const pa=finalOf(a.d,a.t),pb=finalOf(b.d,b.t);if(pa===pb)return note('두 근무의 근무자가 같은 사람입니다.');
  pushTo(ra,pb);pushTo(rb,pa);
  S.log.push({id:Date.now(),ts:Date.now(),type:'swap',a:{...ra,from:pa,to:pb},b:{...rb,from:pb,to:pa}});
  sel=[];save();toast(`교대 완료: ${pa} ⇄ ${pb}`);if(after)after();rqAfterChange();shareLog(S.log[S.log.length-1].id);return true}
-function doReplace(){const n=$('#bar_p').value;if(!n)return;return applySub(sel[0],n)}
+async function doReplace(){const n=$('#bar_p').value;if(!n)return;const s=sel[0];if(inDed(n,s.d)&&!(await ask(`확인해 주세요.\n\n⚠ ${n}은(는) ${fmt(s.d)}에 공제 기간이에요\n\n그래도 대근 지정할까요?`)))return;return applySub(s,n)}
 function applySub(s,n){const r=slotRef(s.d,s.t);
  if(s.d>=S.anchor.date&&!r.k)return note('근무자가 없는 칸이에요.');
  const from=finalOf(s.d,s.t);pushTo(r,n);
@@ -515,6 +517,7 @@ function render(){
  if(ONLINE&&typeof gcalResume==='function')setTimeout(gcalResume,0);
  if(RQ_ON&&!RQ.tried){RQ.tried=true;setTimeout(()=>rqLoad(),0)}
  if(RQ_ON)setTimeout(rqAdminNotice,0);
+ if(!RQ_ON&&canEdit()&&!window.__dedAud){window.__dedAud=true;setTimeout(dedAudit,400)}
  if(!canEdit()&&!VIEW_PAGES.includes(pg))pg='cal';
  if(!canEdit()&&mode!=='view'&&mode!=='ask'){mode='view';sel=[]}
  if(canEdit()&&mode==='ask'){mode='view';sel=[]}
@@ -556,14 +559,15 @@ function renderToday(){
 /* ---------- 근무표 ---------- */
 function slotHtml(d,t,chain){
  const lab=t==='d'?'주:':t==='n'?'야:':'';const isSel=sel.some(s=>s.d===d&&s.t===t);const fin=chain[chain.length-1];
- let h=`<div class="slot${isSel?' sel':''}${ME()&&fin===ME()?' mine':''}" data-d="${d}" data-t="${t}">`;
+ const dw=fin&&inDed(fin,d);let h=`<div class="slot${isSel?' sel':''}${ME()&&fin===ME()?' mine':''}${dw?' dedw':''}" data-d="${d}" data-t="${t}"${dw?` title="${esc(fin)} 공제 기간"`:''}>`;
  if(mode==='swap')h+=`<span class="ck">${isSel?'☑':'☐'}</span>`;
  h+=`<div class="ln${chain.length===1?' fin':''}">${lab}${esc(chain[0])}</div>`;
  for(let i=1;i<chain.length;i++)h+=`<div class="ln chg${i===chain.length-1?' fin':''}">-&gt;${esc(chain[i])}</div>`;
+ if(dw)h+=`<div class="ln dw">⚠ 공제 중</div>`;
  return h+'</div>';
 }
 function slotList(d,t,chain){const isSel=sel.some(s=>s.d===d&&s.t===t),fin=chain[chain.length-1];
- return `<div class="slot lsl${isSel?' sel':''}${ME()&&fin===ME()?' mine':''}" data-d="${d}" data-t="${t}">${mode==='swap'?`<span>${isSel?'☑':'☐'}</span>`:''}<span class="lt">${TN[t]}</span>${chain.length>1?`<span class="o">${esc(chain[0])}</span>→<span class="f c">${esc(fin)}</span>`:`<span class="f">${esc(fin)}</span>`}</div>`}
+ const dw=fin&&inDed(fin,d);return `<div class="slot lsl${isSel?' sel':''}${ME()&&fin===ME()?' mine':''}${dw?' dedw':''}" data-d="${d}" data-t="${t}">${mode==='swap'?`<span>${isSel?'☑':'☐'}</span>`:''}<span class="lt">${TN[t]}</span>${chain.length>1?`<span class="o">${esc(chain[0])}</span>→<span class="f c">${esc(fin)}</span>`:`<span class="f">${esc(fin)}</span>`}</div>`}
 function pageCalList(){const days=monthDays(month),C=chainsFor(days);
  const rows=days.map(d=>{const w=dow(d),hol=has(S.holidays,d),o=C[d];
   const cls=['lrow',(w===0||hol)?'sun':(w===6?'sat':''),d<S.anchor.date?'fixed':'',d===TODAY?'isToday':''].join(' ');
@@ -683,14 +687,28 @@ function pageRot(){
 }
 
 /* ---------- 인원 ---------- */
+/* 공제를 넣거나 고칠 때: 그 사람이 낀 교대·대근 중 날짜가 바뀌거나 공제 중에 근무가 잡히는 것을 찾아 [교대 취소]를 제안 */
+/* 관리자로 들어올 때 한 번: 공제 중인데 교대·대근으로 근무가 잡힌 칸 점검 */
+function dedHits(){const G=genFull();return S.log.filter(e=>sides(e).some(x=>{const d=curD(x,G);return d&&d>=TODAY&&inDed(finalOf(d,x.t),d)}))}
+async function dedAudit(){if(!canEdit())return;const hit=dedHits();if(!hit.length)return;
+ if(await modal({msg:`⚠ 공제 기간인데 교대·대근으로 근무가 잡힌 건이 ${hit.length}건 있어요.\n\n${hit.map(e=>'· '+logPlain(e)).join('\n')}\n\n[교대 취소]를 누르면 두 사람 모두 원래 순번으로 돌아가요. (취소 후 [게시]를 눌러야 반영돼요)`,ok:'교대 취소',cancel:'나중에'})){for(const e of hit)await cancelLog(e.id,true);toast(`교대 ${hit.length}건 취소 — [게시]를 눌러 반영하세요`)}}
+async function dedChange(n,fn,msg){const G0=genFull();const key=(e,G)=>sides(e).map(x=>curD(x,G)||'').join(',');
+ const before=new Map(S.log.map(e=>[e.id,key(e,G0)]));const b=swapDates();if(fn()===false)return;save();
+ const G1=genFull();const hit=S.log.filter(e=>sides(e).some(x=>x.from===n||x.to===n)&&(before.get(e.id)!==key(e,G1)||sides(e).some(x=>{const d=curD(x,G1);return d&&inDed(finalOf(d,x.t),d)})));
+ if(msg)toast(msg);
+ if(!hit.length){const a=swapDates();const moved=Object.keys(b).filter(k=>k in a&&a[k]!==b[k]&&S.swaps[k]);if(moved.length)setTimeout(()=>note('ℹ 순번이 밀리면서 교대(→)도 사람을 따라 같이 옮겨졌어요.'),50);return}
+ const lines=hit.map(e=>{const was=before.get(e.id).split(',').filter(Boolean).map(fmt).join(' ⇄ ');return '· '+logPlain(e)+(was?` (원래 ${was})`:'')}).join('\n');
+ if(await modal({msg:`⚠ ${n} 공제 기간과 겹치는 ${hit.length===1?'교대':'교대·대근'} ${hit.length}건이 있어요.\n\n${lines}\n\n[교대 취소]를 누르면 두 사람 모두 원래 순번으로 돌아가고, 공제자 자리는 순번대로 다음 사람이 들어가요.`,ok:'교대 취소',cancel:'그대로 두기'})){
+  for(const e of hit)await cancelLog(e.id,true);toast(`교대 ${hit.length}건 취소 — 원래 순번으로 복구`)}
+ else note('그대로 뒀어요. 근무표에 ⚠ 공제 중 표시된 칸을 직접 교대나 대근으로 조정해 주세요.')}
 function addPeriod(){const n=$('#pp_n').value,f=$('#pp_f').value,to=$('#pp_t').value,r=$('#pp_r').value.trim();
  if(!f||!to)return note('시작일과 마지막 날을 모두 넣어주세요');if(to<f)return note('마지막 날이 시작일보다 빠릅니다');
- if(mutate(()=>{S.people[n].periods.push({from:f,to:to,reason:r})}))toast(`${n} ${fmt(f)}~${fmt(to)} 공제·파견 등록`)}
+ dedChange(n,()=>{S.people[n].periods.push({from:f,to:to,reason:r})},`${n} ${fmt(f)}~${fmt(to)} 공제·파견 등록`)}
 async function rmPeriod(n,i){if(!await ask(n+' 기간을 삭제할까요?'))return;mutate(()=>{S.people[n].periods.splice(i,1)})}
 async function editPeriod(n,i){const q=S.people[n].periods[i];const re=/^\d{4}-\d{2}-\d{2}$/;
  const f=await askText(`${n} 공제·파견 시작일 (예: 2026-12-01)`,q.from);if(f===null)return;if(!re.test(f))return note('형식: YYYY-MM-DD');
  const v=await askText(`${n} 마지막 날 (이 날까지 빠지고 다음 날 복귀, 예: 2026-12-18)`,q.to||'');if(v===null)return;if(!re.test(v))return note('형식: YYYY-MM-DD');if(v<f)return note('마지막 날이 시작일보다 빠릅니다');
- mutate(()=>{q.from=f;q.to=v})}
+ dedChange(n,()=>{q.from=f;q.to=v},`${n} 공제·파견 기간 수정`)}
 function setOut(){const n=$('#po_n').value,d=$('#po_d').value;if(!d)return note('제외 시작일을 넣어주세요');if(mutate(()=>{S.people[n].out=d}))toast(n+' '+fmt(d)+'부터 제외')}
 function unOut(n){mutate(()=>{S.people[n].out=null})}
 async function delPerson(n){if(!await ask(`${n}을(를) 명단과 모든 순번에서 완전히 삭제할까요?\n(확정된 지난 근무 기록의 이름은 남습니다)`))return;
@@ -942,7 +960,8 @@ function rqText(o){return o.type==='swap'?`${slotMsgD(o.a)} ${rkName(o.a.who)} <
 // 관리자로 들어오면 대기 중인 건의를 새로 불러와 알림(한 번)
 function rqAdminNotice(){if(!canEdit()){RQ.admSeen=false;RQ.notified=false;return}
  if(!RQ.admSeen){RQ.admSeen=true;rqLoad(true);return}
- if(!RQ.loaded||RQ.notified||RQ.loading)return;RQ.notified=true;const n=RQ.list.length;if(!n||pg==='req')return;
+ if(!RQ.loaded||RQ.notified||RQ.loading)return;RQ.notified=true;dedAudit().then(()=>rqNoticeShow())}
+function rqNoticeShow(){const n=RQ.list.length;if(!n||pg==='req')return;
  const ok=RQ.list.filter(o=>rqState(o)==='ok').length,dup=RQ.list.filter(o=>rqState(o)==='dup').length;
  modal({msg:`📮 교대 건의가 ${n}건 있어요.\n\n승인 가능 ${ok}건${dup?` · 이미 반영됨(중복) ${dup}건`:''}${n-ok-dup?` · 근무가 바뀜 ${n-ok-dup}건`:''}\n\n`+RQ.list.slice(0,5).map(o=>'· '+rqText(o)).join('\n')+(n>5?`\n… 외 ${n-5}건`:''),ok:'건의함 보기',cancel:'나중에'}).then(v=>{if(v){pg='req';mode='view';sel=[];render();scrollTo(0,0)}})}
 function rqAfterChange(){if(!RQ_ON||!RQ.list.length)return;const n=RQ.list.filter(o=>rqState(o)==='dup').length;if(n)setTimeout(()=>toast(`건의함에 이미 반영된(중복) 건의 ${n}건이 있어요 — 건의함에서 정리하세요`),2600)}
